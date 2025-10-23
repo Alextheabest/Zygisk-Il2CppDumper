@@ -1,0 +1,113 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion rootProject.ext.targetSdkVersion
+
+    defaultConfig {
+        applicationId "com.example.poolvulkan"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        // Restrict to 64-bit only for simplicity and performance
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DAPP_NAME:STRING=poolvulkan"
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            debuggable true
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "src/main/cpp/CMakeLists.txt"
+            version "3.18.1"
+        }
+    }
+
+    // Package shaders from assets
+    sourceSets {
+        main {
+            assets.srcDirs = ["src/main/assets"]
+        }
+    }
+}
+
+// Simple GLSL -> SPIR-V compilation using NDK glslc if available
+// Compiles files in src/main/cpp/shaders into src/main/assets/shaders
+import org.gradle.internal.os.OperatingSystem
+
+def ndkDir = android.ndkDirectory
+
+def possibleGlslcPaths = [
+        new File(ndkDir, "toolchains/llvm/prebuilt/${OperatingSystem.current().isLinux() ? 'linux-x86_64' : (OperatingSystem.current().isMacOsX() ? 'darwin-x86_64' : 'windows-x86_64')}/bin/glslc"),
+        new File(ndkDir, "shader-tools/${OperatingSystem.current().isLinux() ? 'linux-x86_64' : (OperatingSystem.current().isMacOsX() ? 'darwin-x86_64' : 'windows-x86_64')}/glslc"),
+]
+
+def glslcExe = possibleGlslcPaths.find { it.exists() }
+
+// Helper task to compile one shader
+class CompileShader extends DefaultTask {
+    @InputFile File src
+    @OutputFile File dst
+    @Input @Optional String glslc
+
+    @TaskAction
+    void run() {
+        if (glslc == null || !(new File(glslc)).exists()) {
+            logger.lifecycle("glslc not found; skipping shader compile for ${src.name}. Ensure shaders are precompiled.")
+            // Create empty output as placeholder to avoid missing asset errors
+            dst.parentFile.mkdirs()
+            if (!dst.exists()) dst.bytes = new byte[0]
+            return
+        }
+        dst.parentFile.mkdirs()
+        project.exec { execSpec ->
+            execSpec.commandLine glslc, src.absolutePath, '-o', dst.absolutePath
+        }
+    }
+}
+
+// Discover shaders
+File shaderSrcDir = file("src/main/cpp/shaders")
+File shaderOutDir = file("src/main/assets/shaders")
+
+def shaderFiles = []
+if (shaderSrcDir.exists()) {
+    shaderFiles = shaderSrcDir.listFiles(new FilenameFilter() {
+        boolean accept(File dir, String name) {
+            return name.endsWith('.vert') || name.endsWith('.frag')
+        }
+    })?.toList() ?: []
+}
+
+def compileTasks = []
+shaderFiles.each { f ->
+    def outName = f.name + '.spv'
+    def outFile = new File(shaderOutDir, outName)
+    def t = tasks.create(name: "compile_${f.name.replace('.', '_')}", type: CompileShader) {
+        src = f
+        dst = outFile
+        glslc = glslcExe?.absolutePath
+    }
+    compileTasks << t
+}
+
+task compileShaders(dependsOn: compileTasks) {
+    group = 'build'
+    description = 'Compile GLSL to SPIR-V for Vulkan'
+}
+
+preBuild.dependsOn compileShaders
