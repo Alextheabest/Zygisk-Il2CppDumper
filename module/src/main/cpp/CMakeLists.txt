@@ -6,42 +6,107 @@ else ()
     project(${MODULE_NAME})
 endif ()
 
-set(DobbyHome Dobby)
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find required packages
+find_package(android REQUIRED)
+find_library(log-lib log)
+find_library(android-lib android)
+find_library(EGL-lib EGL)
+find_library(GLESv3-lib GLESv3)
+
+# Vulkan
+find_library(vulkan-lib vulkan)
+
+# Include directories
 include_directories(
-        ${DobbyHome}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/vulkan
+    ${CMAKE_CURRENT_SOURCE_DIR}/game
+    ${CMAKE_CURRENT_SOURCE_DIR}/math
+    ${CMAKE_CURRENT_SOURCE_DIR}/renderer
 )
-macro(SET_OPTION option value)
-    set(${option} ${value} CACHE INTERNAL "" FORCE)
-endmacro()
-SET_OPTION(DOBBY_DEBUG OFF)
-SET_OPTION(DOBBY_GENERATE_SHARED OFF)
-add_subdirectory(${DobbyHome} dobby)
 
-message("Build type: ${CMAKE_BUILD_TYPE}")
+# Compiler flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g -O0")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 
-set(CMAKE_CXX_STANDARD 20)
+# Source files
+set(SOURCES
+    main.cpp
+    game/Game.cpp
+    game/Game.h
+    game/PoolGame.cpp
+    game/PoolGame.h
+    game/Ball.cpp
+    game/Ball.h
+    game/Table.cpp
+    game/Table.h
+    game/Cue.cpp
+    game/Cue.h
+    game/Physics.cpp
+    game/Physics.h
+    vulkan/VulkanRenderer.cpp
+    vulkan/VulkanRenderer.h
+    vulkan/VulkanDevice.cpp
+    vulkan/VulkanDevice.h
+    vulkan/VulkanSwapchain.cpp
+    vulkan/VulkanSwapchain.h
+    vulkan/VulkanBuffer.cpp
+    vulkan/VulkanBuffer.h
+    vulkan/VulkanTexture.cpp
+    vulkan/VulkanTexture.h
+    vulkan/VulkanShader.cpp
+    vulkan/VulkanShader.h
+    vulkan/VulkanPipeline.cpp
+    vulkan/VulkanPipeline.h
+    vulkan/VulkanCommandBuffer.cpp
+    vulkan/VulkanCommandBuffer.h
+    vulkan/VulkanMemory.cpp
+    vulkan/VulkanMemory.h
+    math/Vector3.cpp
+    math/Vector3.h
+    math/Matrix4.cpp
+    math/Matrix4.h
+    math/Quaternion.cpp
+    math/Quaternion.h
+    renderer/Camera.cpp
+    renderer/Camera.h
+    renderer/Mesh.cpp
+    renderer/Mesh.h
+    renderer/Material.cpp
+    renderer/Material.h
+    renderer/Model.cpp
+    renderer/Model.h
+    utils/Logger.cpp
+    utils/Logger.h
+    utils/FileUtils.cpp
+    utils/FileUtils.h
+)
 
-set(LINKER_FLAGS "-ffixed-x18 -Wl,--hash-style=both")
-set(C_FLAGS "-Werror=format -fdata-sections -ffunction-sections")
-set(CXX_FLAGS "${CXX_FLAGS} -fno-exceptions -fno-rtti")
+# Create the library
+add_library(${MODULE_NAME} SHARED ${SOURCES})
 
-if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(C_FLAGS "${C_FLAGS} -O2 -fvisibility=hidden -fvisibility-inlines-hidden")
-    set(LINKER_FLAGS "${LINKER_FLAGS} -Wl,-exclude-libs,ALL -Wl,--gc-sections -Wl,--strip-all")
-else ()
-    set(C_FLAGS "${C_FLAGS} -O0")
-endif ()
+# Link libraries
+target_link_libraries(${MODULE_NAME}
+    ${log-lib}
+    ${android-lib}
+    ${EGL-lib}
+    ${GLESv3-lib}
+    ${vulkan-lib}
+)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${C_FLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${C_FLAGS} ${CXX_FLAGS}")
+# Android specific settings
+set_target_properties(${MODULE_NAME} PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}
+)
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${LINKER_FLAGS}")
-set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${LINKER_FLAGS}")
-
-add_library(${MODULE_NAME} SHARED main.cpp hook.cpp il2cpp_dump.cpp)
-target_link_libraries(${MODULE_NAME} log dobby)
-
+# Strip symbols in release build
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_custom_command(TARGET ${MODULE_NAME} POST_BUILD
-            COMMAND ${CMAKE_STRIP} --strip-all --remove-section=.comment "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/lib${MODULE_NAME}.so")
+        COMMAND ${CMAKE_STRIP} --strip-all --remove-section=.comment "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}/lib${MODULE_NAME}.so"
+    )
 endif ()
